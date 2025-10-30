@@ -3,11 +3,10 @@ import pandas as pd
 import numpy as np
 import random
 import plotly.express as px
-# import plotly.graph_objects as go # Not currently used
 from io import BytesIO
-# import json # Not currently used
-import re # Import regex for parsing winner strings
-import math # Import math for log2
+import re 
+import math
+from fpdf import FPDF  # ---!!! NEW IMPORT !!!---
 
 # --- Page configuration ---
 st.set_page_config(
@@ -149,7 +148,27 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
+# ---!!! NEW PDF HELPER FUNCTION !!!---
+# ---!!! NEW PDF HELPER FUNCTION (Corrected) !!!---
+def to_pdf_bytes(text_content):
+    """Converts a string (like df.to_string() or fixture text) to PDF bytes."""
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Set a font that supports a wider range of characters
+    # Courier is monospaced, good for data tables
+    pdf.set_font("Courier", size=9)
+    
+    # Encode the text properly for FPDF, replacing unsupported chars
+    # latin-1 is the default encoding for fpdf2, replacing chars it can't handle
+    encoded_text = text_content.encode('latin-1', 'replace').decode('latin-1')
 
+    # Add the text to the PDF
+    pdf.multi_cell(0, 5, txt=encoded_text)
+    
+    # ---!!! THE FIX IS HERE !!!---
+    # Convert the 'bytearray' from pdf.output() into 'bytes'
+    return bytes(pdf.output())
 # --- Team Generation Functions ---
 
 def create_cricket_teams(df, random_seed=None):
@@ -246,12 +265,10 @@ def create_tug_of_war_teams(df, random_seed=None):
 
 # --- Fixture Generation & Update Functions ---
 
-# --- *** NEW FUNCTION: create_structured_fixtures (v2.5) *** ---
 def create_structured_fixtures(participants, is_teams=True):
     """
     Generates fixture data structure using a naive single-elimination bracket
     that handles non-power-of-2 numbers by adding byes *as needed* in each round.
-    This ensures all players play in Round 1 (if even).
     e.g., 24 -> 12 -> 6 -> 3 -> 2 (1 bye) -> 1
     """
     if not participants or len(participants) < 2:
@@ -414,7 +431,7 @@ def display_fixture_ui(fixtures_data, sport_key_prefix):
              st.toast("No new winners selected.") # Feedback if nothing selected
 
 
-    # Download Button
+    # --- Download Buttons (TXT and PDF) ---
     fixture_text = f"{sport_key_prefix.upper()} TOURNAMENT FIXTURES\n{'='*50}\n"
     for round_data in fixtures_data["rounds"]:
         fixture_text += f"\n{round_data['name']}\n{'='*50}\n"
@@ -429,8 +446,16 @@ def display_fixture_ui(fixtures_data, sport_key_prefix):
                  fixture_text += f"{match['id']}: {line}\n"
         fixture_text += "\n"
 
-    st.download_button(label="📥 Download Fixtures (TXT)", data=fixture_text.encode('utf-8'),
-                       file_name=f"{sport_key_prefix}_fixtures.txt", mime="text/plain")
+    # Use columns for side-by-side download buttons
+    dl_col1, dl_col2 = st.columns(2)
+    with dl_col1:
+        st.download_button(label="📥 Download Fixtures (TXT)", data=fixture_text.encode('utf-8'),
+                           file_name=f"{sport_key_prefix}_fixtures.txt", mime="text/plain", key=f"txt_dl_{sport_key_prefix}")
+    
+    with dl_col2:
+        pdf_bytes = to_pdf_bytes(fixture_text)
+        st.download_button(label="📥 Download Fixtures (PDF)", data=pdf_bytes,
+                           file_name=f"{sport_key_prefix}_fixtures.pdf", mime="application/pdf", key=f"pdf_dl_{sport_key_prefix}")
 
 
 
@@ -567,10 +592,30 @@ else: # Data is loaded
                 st.metric(f"Participants in {selected_sport}", len(display_df))
                 if not display_df.empty:
                     st.dataframe(display_df, hide_index=True, use_container_width=True)
-                    excel_bytes = to_excel(display_df)
-                    st.download_button( f"📥 Download {selected_sport} List (Excel)", excel_bytes,
-                        file_name=f"{selected_sport.replace(' ', '_')}_participants.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"dl_{selected_sport}")
+                    
+                    # ---!! PDF Download Added (3 columns) !!---
+                    dl_col1, dl_col2, dl_col3 = st.columns(3)
+                    with dl_col1:
+                        excel_bytes = to_excel(display_df)
+                        st.download_button( f"📥 Download (Excel)", excel_bytes,
+                            file_name=f"{selected_sport.replace(' ', '_')}_participants.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"dl_excel_{selected_sport}")
+                    with dl_col2:
+                        csv_bytes = display_df.to_csv(index=False).encode('utf-8')
+                        st.download_button( f"📥 Download (CSV)", csv_bytes,
+                            file_name=f"{selected_sport.replace(' ', '_')}_participants.csv",
+                            mime="text/csv", key=f"dl_csv_{selected_sport}")
+                    with dl_col3:
+                        pdf_title = f"{selected_sport} Participants List\n\n"
+                        pdf_string = display_df.to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button(
+                            label=f"📥 Download (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"{selected_sport.replace(' ', '_')}_participants.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_{selected_sport}"
+                        )
                 else: st.info("No participants for this event.")
 
 
@@ -630,13 +675,23 @@ else: # Data is loaded
                                 st.success(f"{team_name} updated.")
                                 st.rerun()
 
-                    st.markdown("---"); col1, col2 = st.columns(2)
+                    # ---!! PDF Download Added (3 columns) !!---
+                    st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                         excel_bytes = to_excel(st.session_state.cricket_teams_df)
                         st.download_button("📥 All Teams (Excel)", excel_bytes, "cricket_teams_edited.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     with col2:
                         csv_bytes = st.session_state.cricket_teams_df.to_csv(index=False).encode('utf-8')
                         st.download_button("📥 All Teams (CSV)", csv_bytes, "cricket_teams_edited.csv", mime="text/csv")
+                    with col3:
+                        pdf_title = "Cricket Team Compositions\n\n"
+                        pdf_string = st.session_state.cricket_teams_df.to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button(
+                            "📥 All Teams (PDF)", pdf_bytes, 
+                            "cricket_teams_edited.pdf", mime="application/pdf"
+                        )
+
 
         # --- Carroms ---
         with tgen_tab2:
@@ -659,13 +714,23 @@ else: # Data is loaded
                     st.markdown("#### 📋 Pair Compositions")
                     st.dataframe(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']], hide_index=True)
                     st.info("Pair editing not implemented. Regenerate or edit downloaded file.")
-                    st.markdown("---"); col1, col2 = st.columns(2)
+                    
+                    # ---!! PDF Download Added (3 columns) !!---
+                    st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                          excel_bytes = to_excel(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']])
                          st.download_button("📥 Pairs (Excel)", excel_bytes, "carroms_pairs.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     with col2:
                          csv_bytes = teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']].to_csv(index=False).encode('utf-8')
                          st.download_button("📥 Pairs (CSV)", csv_bytes, "carroms_pairs.csv", mime="text/csv")
+                    with col3:
+                        pdf_title = "Carroms Pair Compositions\n\n"
+                        pdf_string = teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']].to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button(
+                            "📥 Pairs (PDF)", pdf_bytes, 
+                            "carroms_pairs.pdf", mime="application/pdf"
+                        )
 
         # --- Tug of War ---
         with tgen_tab3:
@@ -718,13 +783,22 @@ else: # Data is loaded
                                  st.warning("Note: Team size/count constraints may be broken after editing.")
                                  st.rerun()
 
-                    st.markdown("---"); col1, col2 = st.columns(2)
+                    # ---!! PDF Download Added (3 columns) !!---
+                    st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                         excel_bytes = to_excel(st.session_state.tug_teams_df)
                         st.download_button("📥 All Teams (Excel)", excel_bytes, "tug_teams_edited.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     with col2:
                         csv_bytes = st.session_state.tug_teams_df.to_csv(index=False).encode('utf-8')
                         st.download_button("📥 All Teams (CSV)", csv_bytes, "tug_teams_edited.csv", mime="text/csv")
+                    with col3:
+                        pdf_title = "Tug of War Team Compositions\n\n"
+                        pdf_string = st.session_state.tug_teams_df.to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button(
+                            "📥 All Teams (PDF)", pdf_bytes, 
+                            "tug_teams_edited.pdf", mime="application/pdf"
+                        )
 
 
     # --- TAB 4: Fixture Creator ---
@@ -793,4 +867,4 @@ else: # Data is loaded
 
 # --- Footer ---
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.5</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.6 (PDF Export)</div>", unsafe_allow_html=True)
