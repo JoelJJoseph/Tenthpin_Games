@@ -6,7 +6,7 @@ import plotly.express as px
 from io import BytesIO
 import re 
 import math
-from fpdf import FPDF  # ---!!! NEW IMPORT !!!---
+from fpdf import FPDF  # Import FPDF
 
 # --- Page configuration ---
 st.set_page_config(
@@ -120,6 +120,7 @@ def clean_data(df):
 
     if CRICKET_SKILL_COL in df.columns:
         df[CRICKET_SKILL_COL] = df[CRICKET_SKILL_COL].astype(str).str.strip().replace({'Both': 'All Rounder', 'Allrounder': 'All Rounder'}, regex=False)
+        # ---!!! UPDATED to include 'nan' as '' !!!---
         df[CRICKET_SKILL_COL] = df[CRICKET_SKILL_COL].apply(lambda x: x if x in ['Batsman', 'Bowler', 'All Rounder'] else '')
 
     return df
@@ -148,48 +149,56 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
-# ---!!! NEW PDF HELPER FUNCTION !!!---
-# ---!!! NEW PDF HELPER FUNCTION (Corrected) !!!---
+
 def to_pdf_bytes(text_content):
     """Converts a string (like df.to_string() or fixture text) to PDF bytes."""
     pdf = FPDF()
     pdf.add_page()
-    
-    # Set a font that supports a wider range of characters
-    # Courier is monospaced, good for data tables
     pdf.set_font("Courier", size=9)
-    
     # Encode the text properly for FPDF, replacing unsupported chars
-    # latin-1 is the default encoding for fpdf2, replacing chars it can't handle
     encoded_text = text_content.encode('latin-1', 'replace').decode('latin-1')
-
-    # Add the text to the PDF
     pdf.multi_cell(0, 5, txt=encoded_text)
-    
-    # ---!!! THE FIX IS HERE !!!---
     # Convert the 'bytearray' from pdf.output() into 'bytes'
     return bytes(pdf.output())
+
+
 # --- Team Generation Functions ---
 
+# ---!!! UPDATED CRICKET FUNCTION (v2.8) !!!---
 def create_cricket_teams(df, random_seed=None):
+    """
+    Generates 6 teams of 12 players.
+    Requires 74 players (6*12 + 2 subs).
+    """
+    TEAM_SIZE = 12
+    NUM_TEAMS_REQUIRED = 6
+    NUM_SUBS = 2
+    TOTAL_PLAYERS_NEEDED = (TEAM_SIZE * NUM_TEAMS_REQUIRED) + NUM_SUBS # 72 + 2 = 74
+
     if random_seed: random.seed(random_seed); np.random.seed(random_seed)
     if CRICKET_COL not in df.columns: return None, [], "Cricket column not found."
     if CRICKET_SKILL_COL not in df.columns: return None, [], "Cricket Skill column not found."
 
     cricket_df = df[df[CRICKET_COL].astype(str).str.lower() == 'yes'].copy()
-    if len(cricket_df) < 11: return None, [], "Not enough players (min 11)."
+    
+    if len(cricket_df) < TOTAL_PLAYERS_NEEDED:
+        return None, [], f"Not enough players. Need {TOTAL_PLAYERS_NEEDED} (for 6 teams + 2 subs), but only found {len(cricket_df)}."
 
     all_players_indices = cricket_df.index.tolist()
     random.shuffle(all_players_indices)
-    num_teams = len(all_players_indices) // 11
-    if num_teams == 0: return None, [], "Not enough players (min 11)."
 
+    # Select players for teams (72)
+    team_player_indices = all_players_indices[:(TEAM_SIZE * NUM_TEAMS_REQUIRED)]
+    # Select subs (2)
+    sub_player_indices = all_players_indices[(TEAM_SIZE * NUM_TEAMS_REQUIRED) : TOTAL_PLAYERS_NEEDED]
+    # All others are also unassigned
+    other_unassigned_indices = all_players_indices[TOTAL_PLAYERS_NEEDED:]
+    
     teams = []; players_used_indices = []
-    for i in range(num_teams):
-        team_indices = all_players_indices[i*11 : (i+1)*11]
-        players_used_indices.extend(team_indices)
+    for i in range(NUM_TEAMS_REQUIRED):
+        team_indices = team_player_indices[i*TEAM_SIZE : (i+1)*TEAM_SIZE]
+        players_used_indices.extend(team_indices) # Keep track of who is on a team
         teams.append(team_indices)
-        # Note: Balancing logic omitted for brevity as per previous version
          
     if not teams: return None, [], "Failed to form teams."
 
@@ -200,9 +209,13 @@ def create_cricket_teams(df, random_seed=None):
         team_dfs.append(team_data)
 
     final_teams_df = pd.concat(team_dfs, ignore_index=True)
-    unassigned_indices = list(set(cricket_df.index) - set(players_used_indices))
-    unassigned_players = df.loc[unassigned_indices][[NAME_COL, GENDER_COL, LOC_COL, CRICKET_SKILL_COL]].to_dict('records')
+    
+    # The unassigned pool includes the 2 designated subs + anyone else left over
+    total_unassigned_indices = sub_player_indices + other_unassigned_indices
+    unassigned_players = df.loc[total_unassigned_indices][[NAME_COL, GENDER_COL, LOC_COL, CRICKET_SKILL_COL]].to_dict('records')
+    
     return final_teams_df, unassigned_players, None
+
 
 def create_carroms_pairs(df, random_seed=None):
     if random_seed: random.seed(random_seed); np.random.seed(random_seed)
@@ -232,14 +245,20 @@ def create_carroms_pairs(df, random_seed=None):
     return final_pairs_df if not final_pairs_df.empty else None, unassigned_players, leftover_msg
 
 def create_tug_of_war_teams(df, random_seed=None):
-    team_size = 9; num_teams_required = 6; total_players_needed = team_size * num_teams_required
+    """Generates exactly 5 teams of 11 players each for Tug of War."""
+    team_size = 11
+    num_teams_required = 5
+    total_players_needed = team_size * num_teams_required # 55
+
     if random_seed: random.seed(random_seed); np.random.seed(random_seed)
     if TUG_COL not in df.columns: return None, [], "Tug of War column not found."
 
     tug_df = df[df[TUG_COL].astype(str).str.lower() == 'yes'].copy()
-    if len(tug_df) < total_players_needed:
-        return None, [], f"Need {total_players_needed}, found {len(tug_df)}."
 
+    if len(tug_df) < total_players_needed:
+        return None, [], f"Need {total_players_needed} players for 5 teams of 11. Found {len(tug_df)}."
+
+    # Shuffle all available players
     all_players_indices = tug_df.index.tolist()
     random.shuffle(all_players_indices)
     selected_players_indices = all_players_indices[:total_players_needed]
@@ -626,7 +645,10 @@ else: # Data is loaded
 
         # --- Cricket ---
         with tgen_tab1:
-            st.markdown("### 🏏 Cricket Teams (11 players)")
+            # ---!!! UPDATED TEXT !!!---
+            st.markdown("### 🏏 Cricket Teams (12 players, 6 teams)")
+            st.markdown("*Generates 6 teams of 12 players. Requires 74 players (72 + 2 subs).*")
+            
             if CRICKET_COL not in active_sports: st.warning("No participants registered for Cricket.")
             else:
                 if st.button("🎲 Generate Cricket Teams", key="gen_cricket_btn"):
@@ -636,7 +658,7 @@ else: # Data is loaded
                         st.session_state.cricket_teams_df = teams_df
                         st.session_state.cricket_unassigned = unassigned
                         st.success(f"Generated {teams_df['Team'].nunique()} teams.")
-                        if unassigned: st.info(f"{len(unassigned)} players unassigned.")
+                        if unassigned: st.info(f"{len(unassigned)} players moved to unassigned pool (includes 2 designated subs).")
                         st.rerun()
 
                 # --- Use .get() for checking existence ---
@@ -734,18 +756,24 @@ else: # Data is loaded
 
         # --- Tug of War ---
         with tgen_tab3:
-            st.markdown("### 💪 Tug of War Teams (9 players, 6 teams)")
+            # ---!!! UPDATED TEXT !!!---
+            st.markdown("### 💪 Tug of War Teams (11 players, 5 teams)")
+            st.markdown("*Requires 55 players.*")
+            
             if TUG_COL not in active_sports: st.warning("No participants registered for Tug of War.")
             else:
                 if st.button("🎲 Generate Tug of War Teams", key="gen_tug_btn"):
                     teams_df, unassigned, error_msg = create_tug_of_war_teams(df_main, st.session_state.random_seed)
-                    if error_msg: st.info(error_msg) # Show unassigned msg as info
+                    
                     if teams_df is not None:
                         st.session_state.tug_teams_df = teams_df
                         st.session_state.tug_unassigned = unassigned # List of dicts
                         st.success(f"Generated {teams_df['Team'].nunique()} teams.")
+                        if error_msg: st.info(error_msg) # Show unassigned msg as info
                         st.rerun()
-                    else: st.error("Failed to generate teams (check player count).")
+                    else: 
+                        st.error(f"❌ {error_msg}") # Show error (e.g., not enough players)
+
 
                 # --- Use .get() ---
                 if st.session_state.get("tug_teams_df") is not None:
@@ -867,4 +895,4 @@ else: # Data is loaded
 
 # --- Footer ---
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.6 (PDF Export)</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.8</div>", unsafe_allow_html=True)
