@@ -40,10 +40,18 @@ CRICKET_COL = 'Cricket'
 GENDER_COL = 'Gender'
 NAME_COL = 'Employee Name'
 CHESS_COL = 'Chess'
+# --- New Sport Constants ---
+CUP_STACK_COL = 'Cup Stack Relay'
+THREE_LEG_COL = 'Three Legged Race'
+SACK_RACE_COL = 'Sack Race'
+PUSH_UPS_COL = 'Push Ups'
+PLANKS_COL = 'Planks'
+SQUATS_COL = 'Squats'
+
 
 AVAILABLE_SPORTS = [
-    CRICKET_COL, 'Sack Race', TUG_COL, 'Cup Stack Relay',
-    'Three Legged Race', 'Push Ups', 'Planks', 'Squats',
+    CRICKET_COL, SACK_RACE_COL, TUG_COL, CUP_STACK_COL,
+    THREE_LEG_COL, PUSH_UPS_COL, PLANKS_COL, SQUATS_COL,
     CHESS_COL, CARROM_COL
 ]
 
@@ -66,12 +74,19 @@ if 'carroms_teams_df' not in st.session_state: st.session_state.carroms_teams_df
 if 'carroms_unassigned' not in st.session_state: st.session_state.carroms_unassigned = []
 if 'tug_teams_df' not in st.session_state: st.session_state.tug_teams_df = None
 if 'tug_unassigned' not in st.session_state: st.session_state.tug_unassigned = []
+if 'cup_stack_teams_df' not in st.session_state: st.session_state.cup_stack_teams_df = None
+if 'cup_stack_unassigned' not in st.session_state: st.session_state.cup_stack_unassigned = []
+if 'three_leg_teams_df' not in st.session_state: st.session_state.three_leg_teams_df = None
+if 'three_leg_unassigned' not in st.session_state: st.session_state.three_leg_unassigned = []
+
 
 # Fixture states
 if 'cricket_fixtures_data' not in st.session_state: st.session_state.cricket_fixtures_data = None
 if 'carroms_fixtures_data' not in st.session_state: st.session_state.carroms_fixtures_data = None
 if 'chess_fixtures_data' not in st.session_state: st.session_state.chess_fixtures_data = None
 if 'tug_fixtures_data' not in st.session_state: st.session_state.tug_fixtures_data = None
+if 'cup_stack_fixtures_data' not in st.session_state: st.session_state.cup_stack_fixtures_data = None
+if 'three_leg_fixtures_data' not in st.session_state: st.session_state.three_leg_fixtures_data = None
 
 
 # --- Helper Functions ---
@@ -88,7 +103,11 @@ def transform_sports_column(df):
             sports_dummies = df[SOURCE_SPORTS_COL].astype(str).str.get_dummies(sep=';')
             sports_dummies.columns = sports_dummies.columns.str.strip()
             sports_dummies = sports_dummies.rename(columns={
-                "Carroms (Doubles Only)": CARROM_COL, "Tug of War": TUG_COL,
+                "Carroms (Doubles Only)": CARROM_COL, 
+                "Tug of War": TUG_COL,
+                # Add any other renames if source name differs from constant
+                "Cup Stack Relay": CUP_STACK_COL,
+                "Three Legged Race": THREE_LEG_COL
             })
             # Ensure no empty column names ('') are created
             sports_dummies = sports_dummies.loc[:, sports_dummies.columns != '']
@@ -120,7 +139,6 @@ def clean_data(df):
 
     if CRICKET_SKILL_COL in df.columns:
         df[CRICKET_SKILL_COL] = df[CRICKET_SKILL_COL].astype(str).str.strip().replace({'Both': 'All Rounder', 'Allrounder': 'All Rounder'}, regex=False)
-        # ---!!! UPDATED to include 'nan' as '' !!!---
         df[CRICKET_SKILL_COL] = df[CRICKET_SKILL_COL].apply(lambda x: x if x in ['Batsman', 'Bowler', 'All Rounder'] else '')
 
     return df
@@ -164,7 +182,6 @@ def to_pdf_bytes(text_content):
 
 # --- Team Generation Functions ---
 
-# ---!!! UPDATED CRICKET FUNCTION (v2.8) !!!---
 def create_cricket_teams(df, random_seed=None):
     """
     Generates 6 teams of 12 players.
@@ -245,30 +262,125 @@ def create_carroms_pairs(df, random_seed=None):
     return final_pairs_df if not final_pairs_df.empty else None, unassigned_players, leftover_msg
 
 def create_tug_of_war_teams(df, random_seed=None):
-    """Generates exactly 5 teams of 11 players each for Tug of War."""
-    team_size = 11
-    num_teams_required = 5
-    total_players_needed = team_size * num_teams_required # 55
-
+    """
+    Generates 8 teams of 7 players each.
+    Requires 56 players total.
+    Ensures 1-2 females per team based on availability (13F, 43M).
+    """
+    TEAM_SIZE = 7
+    NUM_TEAMS_REQUIRED = 8
+    TOTAL_PLAYERS_NEEDED = TEAM_SIZE * NUM_TEAMS_REQUIRED # 56
+    MIN_FEMALES_NEEDED = 8 # 1 per team
+    
     if random_seed: random.seed(random_seed); np.random.seed(random_seed)
     if TUG_COL not in df.columns: return None, [], "Tug of War column not found."
 
     tug_df = df[df[TUG_COL].astype(str).str.lower() == 'yes'].copy()
 
-    if len(tug_df) < total_players_needed:
-        return None, [], f"Need {total_players_needed} players for 5 teams of 11. Found {len(tug_df)}."
+    # Separate by gender
+    female_players = tug_df[tug_df[GENDER_COL].astype(str).str.lower() == 'female']
+    male_players = tug_df[tug_df[GENDER_COL].astype(str).str.lower() == 'male']
 
-    # Shuffle all available players
-    all_players_indices = tug_df.index.tolist()
+    # Check constraints
+    if len(tug_df) < TOTAL_PLAYERS_NEEDED:
+        return None, [], f"Need {TOTAL_PLAYERS_NEEDED} players for 8 teams of 7. Found {len(tug_df)}."
+    if len(female_players) < MIN_FEMALES_NEEDED:
+        return None, [], f"Need at least {MIN_FEMALES_NEEDED} female players for 8 teams. Found {len(female_players)}."
+    
+    # Calculate exact number of males needed based on available females
+    # We will use exactly 13 females (as requested)
+    NUM_FEMALES_TO_USE = 13
+    NUM_MALES_TO_USE = TOTAL_PLAYERS_NEEDED - NUM_FEMALES_TO_USE # 56 - 13 = 43
+    
+    if len(female_players) < NUM_FEMALES_TO_USE:
+        return None, [], f"Logic requires {NUM_FEMALES_TO_USE} Females. Found: {len(female_players)}."
+    if len(male_players) < NUM_MALES_TO_USE:
+         return None, [], f"Logic requires {NUM_MALES_TO_USE} Males. Found: {len(male_players)}."
+
+    # Get shuffled lists of indices
+    female_indices = female_players.index.tolist(); random.shuffle(female_indices)
+    male_indices = male_players.index.tolist(); random.shuffle(male_indices)
+
+    # Select the exact number of players
+    females_for_teams = female_indices[:NUM_FEMALES_TO_USE]
+    males_for_teams = male_indices[:NUM_MALES_TO_USE]
+    
+    players_used_indices = females_for_teams + males_for_teams
+    
+    # All other players are unassigned
+    unassigned_female_indices = female_indices[NUM_FEMALES_TO_USE:]
+    unassigned_male_indices = male_indices[NUM_MALES_TO_USE:]
+    # Also capture anyone who wasn't male or female (e.g., 'Unknown' gender)
+    other_indices = list(set(tug_df.index) - set(female_players.index) - set(male_players.index))
+    
+    total_unassigned_indices = unassigned_female_indices + unassigned_male_indices + other_indices
+
+    # Build the teams
+    teams_indices = [[] for _ in range(NUM_TEAMS_REQUIRED)]
+    
+    # 1. Add 1 female to each of the 8 teams
+    for i in range(8):
+        teams_indices[i].append(females_for_teams.pop())
+        
+    # 2. Add 1 extra female to 5 teams (13 - 8 = 5 remaining)
+    for i in range(5):
+        teams_indices[i].append(females_for_teams.pop())
+        
+    # 3. Fill the remaining spots with males
+    male_idx_counter = 0
+    for i in range(NUM_TEAMS_REQUIRED):
+        current_team_size = len(teams_indices[i])
+        males_needed = TEAM_SIZE - current_team_size # 5 teams need 5, 3 teams need 6
+        
+        team_males = males_for_teams[male_idx_counter : male_idx_counter + males_needed]
+        teams_indices[i].extend(team_males)
+        male_idx_counter += males_needed
+
+    team_dfs = []
+    for i, team_list in enumerate(teams_indices, 1):
+        team_data = df.loc[team_list][[NAME_COL, GENDER_COL, LOC_COL]].copy()
+        team_data['Team'] = f'Team {i}'
+        team_dfs.append(team_data)
+
+    final_teams_df = pd.concat(team_dfs, ignore_index=True)
+    unassigned_players = df.loc[total_unassigned_indices][[NAME_COL, GENDER_COL, LOC_COL]].to_dict('records')
+    leftover_msg = f"{len(unassigned_players)} players unassigned." if unassigned_players else None
+    
+    return final_teams_df, unassigned_players, leftover_msg
+
+# ---!!! UPDATED CUP STACK FUNCTION (v2.10) !!!---
+def create_cup_stack_teams(df, random_seed=None):
+    """
+    Generates 6 teams of 6 players each for Cup Stack Relay.
+    Requires 36 players.
+    """
+    TEAM_SIZE = 6
+    NUM_TEAMS_REQUIRED = 6
+    TOTAL_PLAYERS_NEEDED = TEAM_SIZE * NUM_TEAMS_REQUIRED # 36
+
+    if random_seed: random.seed(random_seed); np.random.seed(random_seed)
+    if CUP_STACK_COL not in df.columns: return None, [], "Cup Stack Relay column not found."
+
+    cup_stack_df = df[df[CUP_STACK_COL].astype(str).str.lower() == 'yes'].copy()
+    
+    if len(cup_stack_df) < TOTAL_PLAYERS_NEEDED:
+        return None, [], f"Need {TOTAL_PLAYERS_NEEDED} players for 6 teams of 6. Found {len(cup_stack_df)}."
+
+    all_players_indices = cup_stack_df.index.tolist()
     random.shuffle(all_players_indices)
-    selected_players_indices = all_players_indices[:total_players_needed]
-    unassigned_indices = all_players_indices[total_players_needed:]
 
-    teams = []
-    for i in range(num_teams_required):
-        teams.append(selected_players_indices[i*team_size : (i+1)*team_size])
-
-    if len(teams) != num_teams_required: return None, [], "Error forming teams."
+    # Select players for teams
+    team_player_indices = all_players_indices[:TOTAL_PLAYERS_NEEDED]
+    # All others are unassigned
+    unassigned_indices = all_players_indices[TOTAL_PLAYERS_NEEDED:]
+    
+    teams = []; players_used_indices = []
+    for i in range(NUM_TEAMS_REQUIRED):
+        team_indices = team_player_indices[i*TEAM_SIZE : (i+1)*TEAM_SIZE]
+        players_used_indices.extend(team_indices)
+        teams.append(team_indices)
+         
+    if not teams: return None, [], "Failed to form teams."
 
     team_dfs = []
     for i, team_indices in enumerate(teams, 1):
@@ -279,7 +391,66 @@ def create_tug_of_war_teams(df, random_seed=None):
     final_teams_df = pd.concat(team_dfs, ignore_index=True)
     unassigned_players = df.loc[unassigned_indices][[NAME_COL, GENDER_COL, LOC_COL]].to_dict('records')
     leftover_msg = f"{len(unassigned_players)} players unassigned." if unassigned_players else None
+    
     return final_teams_df, unassigned_players, leftover_msg
+
+# ---!!! UPDATED THREE LEGGED RACE FUNCTION (v2.10) !!!---
+def create_three_leg_pairs(df, random_seed=None):
+    """
+    Generates same-gender pairs (teams of 2) for Three Legged Race.
+    """
+    if random_seed: random.seed(random_seed); np.random.seed(random_seed)
+    if THREE_LEG_COL not in df.columns: return None, [], "Three Legged Race column not found."
+
+    three_leg_df = df[df[THREE_LEG_COL].astype(str).str.lower() == 'yes'].copy()
+    if len(three_leg_df) < 2: return None, [], "Not enough players (min 2)."
+
+    # Separate by gender
+    female_players = three_leg_df[three_leg_df[GENDER_COL].astype(str).str.lower() == 'female']
+    male_players = three_leg_df[three_leg_df[GENDER_COL].astype(str).str.lower() == 'male']
+    
+    all_pairs_list = []
+    players_used_indices = []
+    unassigned_indices = []
+
+    # Create Male pairs
+    male_indices = male_players.index.tolist(); random.shuffle(male_indices)
+    num_male_pairs = len(male_indices) // 2
+    for i in range(num_male_pairs):
+        idx1 = male_indices[i*2]; idx2 = male_indices[i*2 + 1]
+        players_used_indices.extend([idx1, idx2])
+        player1 = df.loc[idx1]; player2 = df.loc[idx2]
+        all_pairs_list.append({
+            'Team': f'Team M{i+1}', 'Player 1': player1[NAME_COL], 'Player 2': player2[NAME_COL],
+            'Location 1': player1[LOC_COL], 'Location 2': player2[LOC_COL], 'Type': 'Male-Male',
+            '_Player1_idx': idx1, '_Player2_idx': idx2
+        })
+    if len(male_indices) % 2 == 1:
+        unassigned_indices.append(male_indices[-1]) # Add leftover male
+
+    # Create Female pairs
+    female_indices = female_players.index.tolist(); random.shuffle(female_indices)
+    num_female_pairs = len(female_indices) // 2
+    for i in range(num_female_pairs):
+        idx1 = female_indices[i*2]; idx2 = female_indices[i*2 + 1]
+        players_used_indices.extend([idx1, idx2])
+        player1 = df.loc[idx1]; player2 = df.loc[idx2]
+        all_pairs_list.append({
+            'Team': f'Team F{i+1}', 'Player 1': player1[NAME_COL], 'Player 2': player2[NAME_COL],
+            'Location 1': player1[LOC_COL], 'Location 2': player2[LOC_COL], 'Type': 'Female-Female',
+            '_Player1_idx': idx1, '_Player2_idx': idx2
+        })
+    if len(female_indices) % 2 == 1:
+        unassigned_indices.append(female_indices[-1]) # Add leftover female
+
+    if not all_pairs_list:
+        return None, [], "Not enough players to form any pairs."
+
+    final_pairs_df = pd.DataFrame(all_pairs_list)
+    unassigned_players = df.loc[unassigned_indices][[NAME_COL, GENDER_COL, LOC_COL]].to_dict('records')
+    leftover_msg = f"{len(unassigned_players)} players unassigned." if unassigned_players else None
+    
+    return final_pairs_df, unassigned_players, leftover_msg
 
 
 # --- Fixture Generation & Update Functions ---
@@ -641,11 +812,13 @@ else: # Data is loaded
     # --- TAB 3: Team Generator ---
     with tab3:
         st.markdown("## 👥 Team Generator")
-        tgen_tab1, tgen_tab2, tgen_tab3 = st.tabs(["🏏 Cricket", "🕳️ Carroms", "💪 Tug of War"])
+        # ---!!! UPDATED TABS (5) !!!---
+        tgen_tab1, tgen_tab2, tgen_tab3, tgen_tab4, tgen_tab5 = st.tabs([
+            "🏏 Cricket", "🕳️ Carroms", "💪 Tug of War", "🥤 Cup Stack", "🏃‍♂️ Three Legged Race"
+        ])
 
         # --- Cricket ---
         with tgen_tab1:
-            # ---!!! UPDATED TEXT !!!---
             st.markdown("### 🏏 Cricket Teams (12 players, 6 teams)")
             st.markdown("*Generates 6 teams of 12 players. Requires 74 players (72 + 2 subs).*")
             
@@ -679,6 +852,7 @@ else: # Data is loaded
                             players_to_add = st.multiselect("Select players to ADD:", unassigned_names, key=f"add_cricket_{team_name}")
 
                             if st.button(f"Update {team_name}", key=f"update_cricket_{team_name}"):
+                                # (Logic for updating teams remains the same)
                                 current_df = st.session_state.cricket_teams_df
                                 current_unassigned = st.session_state.cricket_unassigned
                                 idx_to_remove = current_df[(current_df['Team'] == team_name) & (current_df[NAME_COL].isin(players_to_remove))].index
@@ -691,13 +865,11 @@ else: # Data is loaded
                                 new_unassigned = [p for p in current_unassigned if p[NAME_COL] not in players_to_add]
                                 for p_removed in removed_players_data:
                                      new_unassigned.append({k:v for k,v in p_removed.items() if k != 'Team'})
-
                                 st.session_state.cricket_teams_df = current_df.sort_values(by=['Team', NAME_COL]).reset_index(drop=True)
                                 st.session_state.cricket_unassigned = new_unassigned
                                 st.success(f"{team_name} updated.")
                                 st.rerun()
 
-                    # ---!! PDF Download Added (3 columns) !!---
                     st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                         excel_bytes = to_excel(st.session_state.cricket_teams_df)
@@ -709,11 +881,7 @@ else: # Data is loaded
                         pdf_title = "Cricket Team Compositions\n\n"
                         pdf_string = st.session_state.cricket_teams_df.to_string(index=False)
                         pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
-                        st.download_button(
-                            "📥 All Teams (PDF)", pdf_bytes, 
-                            "cricket_teams_edited.pdf", mime="application/pdf"
-                        )
-
+                        st.download_button("📥 All Teams (PDF)", pdf_bytes, "cricket_teams_edited.pdf", mime="application/pdf")
 
         # --- Carroms ---
         with tgen_tab2:
@@ -722,7 +890,7 @@ else: # Data is loaded
             else:
                 if st.button("🎲 Generate Carroms Pairs", key="gen_carroms_btn"):
                     pairs_df, unassigned, error_msg = create_carroms_pairs(df_main, st.session_state.random_seed)
-                    if error_msg: st.info(error_msg) # Show leftover msg as info
+                    if error_msg: st.info(error_msg) 
                     if pairs_df is not None:
                         st.session_state.carroms_teams_df = pairs_df
                         st.session_state.carroms_unassigned = unassigned
@@ -730,14 +898,12 @@ else: # Data is loaded
                         st.rerun()
                     else: st.error("Failed to generate pairs (likely not enough players).")
 
-                # --- Use .get() ---
                 if st.session_state.get("carroms_teams_df") is not None:
                     teams_df = st.session_state.carroms_teams_df
                     st.markdown("#### 📋 Pair Compositions")
                     st.dataframe(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']], hide_index=True)
                     st.info("Pair editing not implemented. Regenerate or edit downloaded file.")
                     
-                    # ---!! PDF Download Added (3 columns) !!---
                     st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                          excel_bytes = to_excel(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']])
@@ -749,16 +915,12 @@ else: # Data is loaded
                         pdf_title = "Carroms Pair Compositions\n\n"
                         pdf_string = teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2']].to_string(index=False)
                         pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
-                        st.download_button(
-                            "📥 Pairs (PDF)", pdf_bytes, 
-                            "carroms_pairs.pdf", mime="application/pdf"
-                        )
+                        st.download_button("📥 Pairs (PDF)", pdf_bytes, "carroms_pairs.pdf", mime="application/pdf")
 
         # --- Tug of War ---
         with tgen_tab3:
-            # ---!!! UPDATED TEXT !!!---
-            st.markdown("### 💪 Tug of War Teams (11 players, 5 teams)")
-            st.markdown("*Requires 55 players.*")
+            st.markdown("### 💪 Tug of War Teams (7 players, 8 teams)")
+            st.markdown("*Generates 8 teams of 7, requiring 56 players (13 Females, 43 Males).*")
             
             if TUG_COL not in active_sports: st.warning("No participants registered for Tug of War.")
             else:
@@ -767,15 +929,13 @@ else: # Data is loaded
                     
                     if teams_df is not None:
                         st.session_state.tug_teams_df = teams_df
-                        st.session_state.tug_unassigned = unassigned # List of dicts
+                        st.session_state.tug_unassigned = unassigned 
                         st.success(f"Generated {teams_df['Team'].nunique()} teams.")
-                        if error_msg: st.info(error_msg) # Show unassigned msg as info
+                        if error_msg: st.info(error_msg) # Show unassigned msg
                         st.rerun()
                     else: 
-                        st.error(f"❌ {error_msg}") # Show error (e.g., not enough players)
+                        st.error(f"❌ {error_msg}") 
 
-
-                # --- Use .get() ---
                 if st.session_state.get("tug_teams_df") is not None:
                     teams_df = st.session_state.tug_teams_df
                     unassigned_list = st.session_state.get("tug_unassigned", [])
@@ -793,6 +953,7 @@ else: # Data is loaded
                              players_to_add = st.multiselect("Select players to ADD:", unassigned_names, key=f"add_tug_{team_name}")
 
                              if st.button(f"Update {team_name}", key=f"update_tug_{team_name}"):
+                                 # (Team edit logic remains the same)
                                  current_df = st.session_state.tug_teams_df
                                  current_unassigned = st.session_state.tug_unassigned
                                  idx_to_remove = current_df[(current_df['Team'] == team_name) & (current_df[NAME_COL].isin(players_to_remove))].index
@@ -804,14 +965,12 @@ else: # Data is loaded
                                      current_df = pd.concat([current_df, pd.DataFrame([p_data])], ignore_index=True)
                                  new_unassigned = [p for p in current_unassigned if p[NAME_COL] not in players_to_add]
                                  for p_removed in removed_players_data: new_unassigned.append({k:v for k,v in p_removed.items() if k != 'Team'})
-
                                  st.session_state.tug_teams_df = current_df.sort_values(by=['Team', NAME_COL]).reset_index(drop=True)
                                  st.session_state.tug_unassigned = new_unassigned
                                  st.success(f"{team_name} updated.")
                                  st.warning("Note: Team size/count constraints may be broken after editing.")
                                  st.rerun()
 
-                    # ---!! PDF Download Added (3 columns) !!---
                     st.markdown("---"); col1, col2, col3 = st.columns(3)
                     with col1:
                         excel_bytes = to_excel(st.session_state.tug_teams_df)
@@ -823,10 +982,108 @@ else: # Data is loaded
                         pdf_title = "Tug of War Team Compositions\n\n"
                         pdf_string = st.session_state.tug_teams_df.to_string(index=False)
                         pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
-                        st.download_button(
-                            "📥 All Teams (PDF)", pdf_bytes, 
-                            "tug_teams_edited.pdf", mime="application/pdf"
-                        )
+                        st.download_button("📥 All Teams (PDF)", pdf_bytes, "tug_teams_edited.pdf", mime="application/pdf")
+
+        # ---!!! UPDATED TAB: Cup Stack Relay !!!---
+        with tgen_tab4:
+            st.markdown(f"### 🥤 {CUP_STACK_COL} (6 players, 6 teams)")
+            st.markdown("*Generates 6 teams of 6 players. Requires 36 players.*")
+            
+            if CUP_STACK_COL not in active_sports: st.warning(f"No participants registered for {CUP_STACK_COL}.")
+            else:
+                if st.button("🎲 Generate Cup Stack Teams", key="gen_cup_stack_btn"):
+                    teams_df, unassigned, error_msg = create_cup_stack_teams(df_main, st.session_state.random_seed)
+                    
+                    if teams_df is not None:
+                        st.session_state.cup_stack_teams_df = teams_df
+                        st.session_state.cup_stack_unassigned = unassigned
+                        st.success(f"Generated {teams_df['Team'].nunique()} teams.")
+                        if error_msg: st.info(error_msg) # Show unassigned
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {error_msg}")
+
+                if st.session_state.get("cup_stack_teams_df") is not None:
+                    teams_df = st.session_state.cup_stack_teams_df
+                    unassigned_list = st.session_state.get("cup_stack_unassigned", [])
+                    unassigned_names = [p[NAME_COL] for p in unassigned_list if NAME_COL in p]
+
+                    st.markdown("#### 📋 Team Compositions")
+                    for team_name in sorted(teams_df['Team'].unique()):
+                         with st.expander(f"👥 {team_name} ({len(teams_df[teams_df['Team'] == team_name])} players)"):
+                             team_data = teams_df[teams_df['Team'] == team_name]
+                             st.dataframe(team_data[[NAME_COL, GENDER_COL, LOC_COL]], hide_index=True)
+
+                             st.markdown("---"); st.markdown("**Edit Team:**")
+                             current_player_names = team_data[NAME_COL].tolist()
+                             players_to_remove = st.multiselect("Select players to REMOVE:", current_player_names, key=f"remove_cup_stack_{team_name}")
+                             players_to_add = st.multiselect("Select players to ADD:", unassigned_names, key=f"add_cup_stack_{team_name}")
+
+                             if st.button(f"Update {team_name}", key=f"update_cup_stack_{team_name}"):
+                                 current_df = st.session_state.cup_stack_teams_df
+                                 current_unassigned = st.session_state.cup_stack_unassigned
+                                 idx_to_remove = current_df[(current_df['Team'] == team_name) & (current_df[NAME_COL].isin(players_to_remove))].index
+                                 removed_players_data = current_df.loc[idx_to_remove].to_dict('records')
+                                 current_df = current_df.drop(index=idx_to_remove)
+                                 players_to_add_data = [p for p in current_unassigned if p[NAME_COL] in players_to_add]
+                                 for p_data in players_to_add_data:
+                                     p_data['Team'] = team_name
+                                     current_df = pd.concat([current_df, pd.DataFrame([p_data])], ignore_index=True)
+                                 new_unassigned = [p for p in current_unassigned if p[NAME_COL] not in players_to_add]
+                                 for p_removed in removed_players_data: new_unassigned.append({k:v for k,v in p_removed.items() if k != 'Team'})
+                                 st.session_state.cup_stack_teams_df = current_df.sort_values(by=['Team', NAME_COL]).reset_index(drop=True)
+                                 st.session_state.cup_stack_unassigned = new_unassigned
+                                 st.success(f"{team_name} updated.")
+                                 st.warning("Note: Team size/count constraints may be broken after editing.")
+                                 st.rerun()
+
+                    st.markdown("---"); col1, col2, col3 = st.columns(3)
+                    with col1:
+                        excel_bytes = to_excel(st.session_state.cup_stack_teams_df)
+                        st.download_button("📥 All Teams (Excel)", excel_bytes, "cup_stack_teams_edited.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    with col2:
+                        csv_bytes = st.session_state.cup_stack_teams_df.to_csv(index=False).encode('utf-8')
+                        st.download_button("📥 All Teams (CSV)", csv_bytes, "cup_stack_teams_edited.csv", mime="text/csv")
+                    with col3:
+                        pdf_title = "Cup Stack Relay Team Compositions\n\n"
+                        pdf_string = st.session_state.cup_stack_teams_df.to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button("📥 All Teams (PDF)", pdf_bytes, "cup_stack_teams_edited.pdf", mime="application/pdf")
+
+        # ---!!! UPDATED TAB: Three Legged Race !!!---
+        with tgen_tab5:
+            st.markdown(f"### 🏃‍♂️ {THREE_LEG_COL} (2 players)")
+            st.markdown("*Generates Male-Male and Female-Female pairs.*")
+            if THREE_LEG_COL not in active_sports: st.warning(f"No participants registered for {THREE_LEG_COL}.")
+            else:
+                if st.button("🎲 Generate Three Legged Pairs", key="gen_three_leg_btn"):
+                    pairs_df, unassigned, error_msg = create_three_leg_pairs(df_main, st.session_state.random_seed)
+                    if error_msg: st.info(error_msg) 
+                    if pairs_df is not None:
+                        st.session_state.three_leg_teams_df = pairs_df
+                        st.session_state.three_leg_unassigned = unassigned
+                        st.success(f"Generated {len(pairs_df)} pairs.")
+                        st.rerun()
+                    else: st.error("Failed to generate pairs (likely not enough players).")
+
+                if st.session_state.get("three_leg_teams_df") is not None:
+                    teams_df = st.session_state.three_leg_teams_df
+                    st.markdown("#### 📋 Pair Compositions")
+                    st.dataframe(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2', 'Type']], hide_index=True)
+                    st.info("Pair editing not implemented. Regenerate or edit downloaded file.")
+                    
+                    st.markdown("---"); col1, col2, col3 = st.columns(3)
+                    with col1:
+                         excel_bytes = to_excel(teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2', 'Type']])
+                         st.download_button("📥 Pairs (Excel)", excel_bytes, "three_leg_pairs.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    with col2:
+                         csv_bytes = teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2', 'Type']].to_csv(index=False).encode('utf-8')
+                         st.download_button("📥 Pairs (CSV)", csv_bytes, "three_leg_pairs.csv", mime="text/csv")
+                    with col3:
+                        pdf_title = "Three Legged Race Pair Compositions\n\n"
+                        pdf_string = teams_df[['Team', 'Player 1', 'Player 2', 'Location 1', 'Location 2', 'Type']].to_string(index=False)
+                        pdf_bytes = to_pdf_bytes(pdf_title + pdf_string)
+                        st.download_button("📥 Pairs (PDF)", pdf_bytes, "three_leg_pairs.pdf", mime="application/pdf")
 
 
     # --- TAB 4: Fixture Creator ---
@@ -834,32 +1091,29 @@ else: # Data is loaded
         st.markdown("## 🏆 Fixture Creator")
         st.info("Select winners using the radio buttons and click 'Update Fixtures' below each bracket to advance them.")
 
-        fix_tab1, fix_tab2, fix_tab3, fix_tab4 = st.tabs([
-            "🏏 Cricket", "🕳️ Carroms", "♟️ Chess", "💪 Tug of War"
+        # ---!!! UPDATED TABS (6) !!!---
+        fix_tab1, fix_tab2, fix_tab3, fix_tab4, fix_tab5, fix_tab6 = st.tabs([
+            "🏏 Cricket", "🕳️ Carroms", "♟️ Chess", "💪 Tug of War", "🥤 Cup Stack", "🏃‍♂️ Three Legged Race"
         ])
 
         with fix_tab1: # Cricket
             st.markdown("### 🏏 Cricket Fixtures")
-            # --- Use .get() ---
             if st.session_state.get("cricket_teams_df") is not None:
                 team_names = st.session_state.cricket_teams_df['Team'].unique().tolist()
                 if st.button("Generate Cricket Fixtures", key="gen_fix_cricket"):
                      st.session_state.cricket_fixtures_data = create_structured_fixtures(team_names, is_teams=True)
                      st.rerun()
-                # --- Use .get() ---
                 if st.session_state.get("cricket_fixtures_data"):
                     display_fixture_ui(st.session_state.cricket_fixtures_data, "cricket")
             else: st.info("Generate Cricket teams first.")
 
         with fix_tab2: # Carroms
             st.markdown("### 🕳️ Carroms Fixtures")
-            # --- Use .get() ---
             if st.session_state.get("carroms_teams_df") is not None:
                 team_names = st.session_state.carroms_teams_df['Team'].unique().tolist()
                 if st.button("Generate Carroms Fixtures", key="gen_fix_carroms"):
                      st.session_state.carroms_fixtures_data = create_structured_fixtures(team_names, is_teams=True)
                      st.rerun()
-                # --- Use .get() ---
                 if st.session_state.get("carroms_fixtures_data"):
                     display_fixture_ui(st.session_state.carroms_fixtures_data, "carroms")
             else: st.info("Generate Carroms pairs first.")
@@ -873,7 +1127,6 @@ else: # Data is loaded
                      if st.button("Generate Chess Fixtures", key="gen_fix_chess"):
                           st.session_state.chess_fixtures_data = create_structured_fixtures(player_names, is_teams=False)
                           st.rerun()
-                     # --- Use .get() ---
                      if st.session_state.get("chess_fixtures_data"):
                           display_fixture_ui(st.session_state.chess_fixtures_data, "chess")
             else: st.info("No Chess participants found.")
@@ -881,18 +1134,40 @@ else: # Data is loaded
 
         with fix_tab4: # Tug of War
              st.markdown("### 💪 Tug of War Fixtures")
-             # --- Use .get() ---
              if st.session_state.get("tug_teams_df") is not None:
                   team_names = st.session_state.tug_teams_df['Team'].unique().tolist()
                   if st.button("Generate Tug of War Fixtures", key="gen_fix_tug"):
                        st.session_state.tug_fixtures_data = create_structured_fixtures(team_names, is_teams=True)
                        st.rerun()
-                  # --- Use .get() ---
                   if st.session_state.get("tug_fixtures_data"):
                       display_fixture_ui(st.session_state.tug_fixtures_data, "tug")
              else: st.info("Generate Tug of War teams first.")
 
+        # ---!!! NEW FIXTURE TAB: Cup Stack !!!---
+        with fix_tab5:
+            st.markdown(f"### 🥤 {CUP_STACK_COL} Fixtures")
+            if st.session_state.get("cup_stack_teams_df") is not None:
+                team_names = st.session_state.cup_stack_teams_df['Team'].unique().tolist()
+                if st.button("Generate Cup Stack Fixtures", key="gen_fix_cup_stack"):
+                     st.session_state.cup_stack_fixtures_data = create_structured_fixtures(team_names, is_teams=True)
+                     st.rerun()
+                if st.session_state.get("cup_stack_fixtures_data"):
+                    display_fixture_ui(st.session_state.cup_stack_fixtures_data, "cup_stack")
+            else: st.info(f"Generate {CUP_STACK_COL} teams first.")
+
+        # ---!!! NEW FIXTURE TAB: Three Legged Race !!!---
+        with fix_tab6:
+            st.markdown(f"### 🏃‍♂️ {THREE_LEG_COL} Fixtures")
+            if st.session_state.get("three_leg_teams_df") is not None:
+                team_names = st.session_state.three_leg_teams_df['Team'].unique().tolist()
+                if st.button("Generate Three Legged Fixtures", key="gen_fix_three_leg"):
+                     st.session_state.three_leg_fixtures_data = create_structured_fixtures(team_names, is_teams=True)
+                     st.rerun()
+                if st.session_state.get("three_leg_fixtures_data"):
+                    display_fixture_ui(st.session_state.three_leg_fixtures_data, "three_leg")
+            else: st.info(f"Generate {THREE_LEG_COL} pairs first.")
+
 
 # --- Footer ---
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.8</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align: center; color: gray;'>Sports Tournament Generator v2.10</div>", unsafe_allow_html=True)
